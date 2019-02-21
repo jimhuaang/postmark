@@ -105,6 +105,7 @@ extern int cli_set_buffering();
 extern int cli_set_bias_read();
 extern int cli_set_bias_create();
 extern int cli_set_report();
+extern int cli_set_createonly();
 
 extern int cli_run();
 extern int cli_load();
@@ -127,6 +128,7 @@ cmd command_list[]={ /* table of CLI commands */
    {"set bias create",cli_set_bias_create,
       "Sets the chance of choosing create over delete"},
    {"set report",cli_set_report,"Choose verbose or terse report format"},
+   {"set createonly",cli_set_createonly, "Choose to create files only or not (0/1); default(0) run transactions and delete all files"},
    {"run",cli_run,"Runs one iteration of benchmark"},
    {"load",cli_load,"Read configuration file"},
    {"show",cli_show,"Displays current configuration"},
@@ -160,6 +162,7 @@ int bias_read=5;                /* chance of picking read over append */
 int bias_create=5;              /* chance of picking create over delete */
 int buffered_io=1;              /* use C library buffered I/O */
 int report=0;                   /* 0=verbose, 1=terse report format */
+int createonly=0;               /* 0=create files, run transactions and delete files; 1=only create files */
 
 /* Working Storage */
 char *file_source; /* pointer to buffer of random text */
@@ -496,6 +499,27 @@ char *param; /* remainder of command line */
    return(1);
 }
 
+int cli_set_createonly(param)
+char *param;
+{
+   int match = 0;
+
+   if (param)
+   {
+   if (!strcmp(param,"0"))
+      createonly = 0;
+   else
+      if(!strcmp(param,"1"))
+         createonly=1;
+      else
+         match=-1;
+   }
+   if (!param || match==-1)
+      fprintf(stderr,"Error: either '0' or '1' required for createonly\n");
+
+   return(1);
+}
+
 /* populate file source buffer with 'size' bytes of readable randomness */
 char *initialize_file_source(size)
 int size; /* number of bytes of junk to create */
@@ -554,10 +578,13 @@ int deleted; /* files deleted back-to-back */
        (int)(files_created/elapsed));
    
    interval=diff_time(end_time,t_end_time);
-   fprintf(fp,"\t\tDeletion alone: %d files (%d per second)\n",deleted,
-      deleted/interval);
-   fprintf(fp,"\t\tMixed with transactions: %d files (%d per second)\n",
-      files_deleted-deleted,(int)((files_deleted-deleted)/t_elapsed));
+   if (createonly==0)
+   {
+     fprintf(fp,"\t\tDeletion alone: %d files (%d per second)\n",deleted,
+        deleted/interval);
+     fprintf(fp,"\t\tMixed with transactions: %d files (%d per second)\n",
+        files_deleted-deleted,(int)((files_deleted-deleted)/t_elapsed));
+   }
 
    fprintf(fp,"\nData:\n");
    fprintf(fp,"\t%s read ",scalef(bytes_read));
@@ -993,22 +1020,25 @@ char *param; /* unused */
    for (i=0; i<simultaneous; i++)
       create_file(buffered_io);
    printf("Done\n");
-  
-   printf("Performing transactions");
-   fflush(stdout);
-   time(&t_start_time);
-   incomplete=run_transactions(buffered_io);
-   time(&t_end_time);
-   if (!incomplete)
-      printf("Done\n");
+ 
+   if (createonly==0)
+   {
+     printf("Performing transactions");
+     fflush(stdout);
+     time(&t_start_time);
+     incomplete=run_transactions(buffered_io);
+     time(&t_end_time);
+     if (!incomplete)
+        printf("Done\n");
 
-   /* delete remaining files */
-   printf("Deleting files...");
-   fflush(stdout);
-   delete_base=files_deleted;
-   for (i=0; i<simultaneous<<1; i++)
-      delete_file(i);
-   printf("Done\n");
+     /* delete remaining files */
+     printf("Deleting files...");
+     fflush(stdout);
+     delete_base=files_deleted;
+     for (i=0; i<simultaneous<<1; i++)
+        delete_file(i);
+     printf("Done\n");
+   }
 
    /* print end time and difference, transaction numbers */
    time(&end_time);
@@ -1111,6 +1141,7 @@ char *param; /* optional: name of output file */
    fprintf(fp,"Random number generator seed is %d\n",seed);
 
    fprintf(fp,"Report format is %s.\n",report?"terse":"verbose");
+   fprintf(fp,"createonly option is %s.\n",createonly?"1":"0");
 
    if (param && fp!=stdout)
       fclose(fp);
